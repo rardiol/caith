@@ -10,6 +10,7 @@ mod error;
 mod parser;
 mod rollresult;
 pub use error::*;
+use rand::Rng;
 
 use parser::{RollParser, Rule};
 pub use rollresult::{RepeatedRollResult, RollResult, SingleRollResult};
@@ -41,11 +42,11 @@ impl Roller {
     }
 
     /// Evaluate and roll the dices
-    pub fn roll(&self) -> Result<RollResult> {
+    pub fn roll<RNG: Rng>(&self, rng: &mut Option<&mut RNG>) -> Result<RollResult> {
         let mut pairs = RollParser::parse(Rule::command, &self.0)?;
         let expr_type = pairs.next().unwrap();
         let mut roll_res = match expr_type.as_rule() {
-            Rule::expr => RollResult::new_single(parser::compute(expr_type.into_inner())?),
+            Rule::expr => RollResult::new_single(parser::compute(expr_type.into_inner(), rng)?),
             Rule::repeated_expr => {
                 let mut pairs = expr_type.into_inner();
                 let expr = pairs.next().unwrap();
@@ -69,7 +70,7 @@ impl Roller {
                 } else {
                     let results: Result<Vec<SingleRollResult>> =
                         (0..number).try_fold(Vec::new(), |mut res, _| {
-                            let c = parser::compute(expr.clone().into_inner())?;
+                            let c = parser::compute(expr.clone().into_inner(), rng)?;
                             res.push(c);
                             Ok(res)
                         });
@@ -95,7 +96,7 @@ impl Roller {
                 if number == 0 {
                     return Err("Can't roll 0 dices".into());
                 } else {
-                    let res = parser::roll_dice(number.abs() as u64, 6);
+                    let res = parser::roll_dice(number.abs() as u64, 6, rng);
                     Roller::compute_ova(res, number)
                 }
             }
@@ -186,6 +187,7 @@ impl<'a> Iterator for Dices<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::rngs::ThreadRng;
 
     #[test]
     fn sandbox_test() {
@@ -194,13 +196,13 @@ mod tests {
             .expect("Error while parsing")
             .for_each(|d| eprintln!("{}", d));
 
-        eprintln!("{}\n{}", r.as_str(), r.roll().unwrap());
+        eprintln!("{}\n{}", r.as_str(), r.roll::<ThreadRng>(&mut None).unwrap());
     }
 
     #[test]
     fn get_repeat_test() {
         let r = Roller::new("(2d6 + 6) ^ 8 : test").unwrap();
-        let roll_res = r.roll().unwrap();
+        let roll_res = r.roll::<ThreadRng>(&mut None).unwrap();
         match roll_res.get_result() {
             rollresult::RollResultType::Single(_) => unreachable!(),
             rollresult::RollResultType::Repeated(rep) => {
@@ -221,7 +223,7 @@ mod tests {
     #[test]
     fn get_repeat_sort_test() {
         let r = Roller::new("(2d6 + 6) ^# 8 : test").unwrap();
-        let roll_res = r.roll().unwrap();
+        let roll_res = r.roll::<ThreadRng>(&mut None).unwrap();
 
         eprintln!("{}", roll_res);
     }
@@ -229,7 +231,7 @@ mod tests {
     #[test]
     fn get_repeat_sum_test() {
         let r = Roller::new("(2d6 + 6) ^+ 2 : test").unwrap();
-        let roll_res = r.roll().unwrap();
+        let roll_res = r.roll::<ThreadRng>(&mut None).unwrap();
         match roll_res.get_result() {
             rollresult::RollResultType::Single(_) => unreachable!(),
             rollresult::RollResultType::Repeated(rep) => {
@@ -248,7 +250,7 @@ mod tests {
     #[test]
     fn get_single_test() {
         let r = Roller::new("2d6 + 6 : test").unwrap();
-        let roll_res = r.roll().unwrap();
+        let roll_res = r.roll::<ThreadRng>(&mut None).unwrap();
         match roll_res.get_result() {
             rollresult::RollResultType::Single(res) => eprintln!("{}", res),
             rollresult::RollResultType::Repeated(_) => unreachable!(),
@@ -275,9 +277,9 @@ mod tests {
         );
 
         let r = Roller::new("ova(12)").unwrap();
-        eprintln!("{}", r.roll().unwrap());
+        eprintln!("{}", r.roll::<ThreadRng>(&mut None).unwrap());
 
         let r = Roller::new("ova(-5)").unwrap();
-        eprintln!("{}", r.roll().unwrap());
+        eprintln!("{}", r.roll::<ThreadRng>(&mut None).unwrap());
     }
 }
